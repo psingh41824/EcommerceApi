@@ -34,6 +34,6 @@ router.post('/register',upload.single('image'),registerValidator,userController.
 
 router.post('/send-mail-verification', sendMailVerificationValidator, userController.sendMailVerification)
 
-router.post('/forgot-password',passwordResetValidator, userController.forgotPassword)
+//router.post('/forgot-password',passwordResetValidator, userController.forgotPassword)
 
 module.exports = router;

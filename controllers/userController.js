@@ -69,9 +69,9 @@ const mailVerification = async (req,res) =>{
             return res.render('404');
         }
 
-         const userId = mongoose.Types.ObjectId(req.query.id); 
+         //const userId = mongoose.Types.ObjectId(req.query.id); 
 
-         const userData = await User.findOne({ _id: userId})
+         const userData = await User.findOne({ _id: req.query.id})
 
          if(userData){
 
@@ -142,36 +142,36 @@ const sendMailVerification = async(req,res) =>{
     
 }
 
-const forgotPassword = async(req, res) =>{
-    try{
-        const errors = validationResult(req)
+// const forgotPassword = async(req, res) =>{
+//     try{
+//         const errors = validationResult(req)
 
-        if(!errors.isEmpty()){
-            return res.status(400).json({
-                success: false,
-                msg:'Errors',
-                errors: errors.array()
-            })
-        }
-        const email = req.body.email
+//         if(!errors.isEmpty()){
+//             return res.status(400).json({
+//                 success: false,
+//                 msg:'Errors',
+//                 errors: errors.array()
+//             })
+//         }
+//         const email = req.body.email
 
-        const userData = await User.findOne({ email:email})
+//         const userData = await User.findOne({ email:email})
 
-        if(!userData){
-            return res.status(400).json({
-                success: false,
-                msg:"Email Doesn't exists!"
-            }) 
-        }
-        const randomString = randomstring.generate()
-        const msg = '<p> Hii '+userData.name+',Please click <a href="http://localhost:5000/reset-password?token='+randomString+'">here</a></p>'
+//         if(!userData){
+//             return res.status(400).json({
+//                 success: false,
+//                 msg:"Email Doesn't exists!"
+//             }) 
+//         }
+//         const randomString = randomstring.generate()
+//         const msg = '<p> Hii '+userData.name+',Please click <a href="http://localhost:5000/reset-password?token='+randomString+'">here</a></p>'
 
-    }catch(error){
-        return res.status(400).json({
-            success: false,
-            msg:error.message
-        })
-    }
-}
+//     }catch(error){
+//         return res.status(400).json({
+//             success: false,
+//             msg:error.message
+//         })
+//     }
+// }
 
-module.exports = { userRegister ,mailVerification, sendMailVerification ,forgotPassword }
+module.exports = { userRegister ,mailVerification, sendMailVerification  }
