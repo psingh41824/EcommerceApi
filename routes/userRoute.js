@@ -30,18 +30,18 @@ const fileFilter = (req, file, cb)=>{
 
 const upload = multer ({storage: storage, fileFilter:fileFilter})
 const userController = require('../controllers/userController')
-const { registerValidator, sendMailVerificationValidator , passwordResetValidator, loginValidator, updateProfileValidator} = require('../helpers/validation') 
+const { registerValidator, sendMailVerificationValidator , passwordResetValidator, loginValidator, updateProfileValidator ,otpMailValidator, verifyOtpValidator} = require('../helpers/validation') 
 
 router.post('/register',upload.single('image'),registerValidator,userController.userRegister)
-
 router.post('/login',loginValidator,userController.loginUser)
-
 router.post('/send-mail-verification', sendMailVerificationValidator, userController.sendMailVerification)
-
 router.post('/forgot-password',passwordResetValidator, userController.forgotPassword)
 //authenticated routes
 router.get('/profile',auth, userController.userProfile)
-
 router.post('/update-profile',auth,upload.single('image'), updateProfileValidator , userController.updateProfile)
+router.get('/refresh-token', auth , userController.refreshToken)
+router.get('/logout',auth, userController.logout);
+router.post('/send-otp',otpMailValidator, userController.sendOtp)
+router.post('/verify-otp', verifyOtpValidator, userController.verifyOtp)
 
 module.exports = router;

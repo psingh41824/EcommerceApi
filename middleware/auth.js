@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken')
+const Blacklist = require('../models/blacklist')
 
 const verifyToken = async(req, res, next)=>{
 
@@ -16,6 +17,14 @@ const verifyToken = async(req, res, next)=>{
         
       const bearer = token.split(' ');
       const bearerToken = bearer[1]
+ 
+      const blacklistToken = await Blacklist.findOne({ token: bearerToken });
+      if(blacklistToken){
+        return res.status(400).json({
+            success: false,
+            msg: 'This session has expired, please try'
+        })
+      }
 
       const decodedData = jwt.verify(bearerToken,process.env.ACCESS_TOKEN_SECRET)
       req.users = decodedData;

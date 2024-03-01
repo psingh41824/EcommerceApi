@@ -7,6 +7,10 @@ const PasswordReset = require('../models/passwordReset');
 const jwt = require('jsonwebtoken')
 const path = require('path');
 const {deleteFile} = require('../helpers/deleteFile')
+const Blacklist = require('../models/blacklist')
+const Otp = require('../models/otp')
+const { timeStamp } = require('console')
+const { oneMinuteExpiry ,threeMinuteExpiry } = require('../helpers/otpValidate')
 
 const userRegister = async(req,res)=>{
 
@@ -63,8 +67,13 @@ const userRegister = async(req,res)=>{
     }
 }
 
-const generaterAccessToken = async (user)=>{
+const generateAccessToken = async (user)=>{
     const token = jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{expiresIn:"2h"})
+    return token;
+}
+
+const generateRefreshToken = async (user)=>{
+    const token = jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{expiresIn:"4h"})
     return token;
 }
 
@@ -106,13 +115,15 @@ const loginUser = async(req,res)=>{
             }) 
         }
 
-       const accessToken = await generaterAccessToken({user : userData})
+       const accessToken = await generateAccessToken({user : userData})
+       const refreshToken = await generateRefreshToken({user : userData})
 
        return res.status(200).json({
         success:true,
         msg: 'Login Successfully!!',
         user : userData,
         accessToken : accessToken,
+        refreshToken : refreshToken,
         tokenType: 'Bearer'
        })
 
@@ -321,4 +332,186 @@ const updateProfile = async (req,res)  =>{
     }
 }
 
-module.exports = { userRegister ,loginUser ,mailVerification, sendMailVerification  ,forgotPassword ,userProfile ,updateProfile }
+const refreshToken = async (req,res) =>{
+
+    try{
+
+        const userId = req.users.user._id;
+
+        const userData = await User.findOne({ _id:userId });
+
+        const accessToken = await generateAccessToken({ user:userData })
+        const refreshToken = await generateRefreshToken({ user:userData })
+
+        return res.status(200).json({
+            success: true,
+            msg:'Token Refreshed!',
+            accessToken:accessToken,
+            refreshToken:refreshToken
+        })
+
+    }catch(error){
+        return res.status(400).json({
+            success: false,
+            msg:error.message
+        })
+    }
+
+}
+
+const logout = async(req,res) =>{
+    try{
+ 
+        const token = req.body.token || req.query.token || req.headers["authorization"];
+ 
+        const bearer = token.split(' ')
+        const bearerToken = bearer[1];
+ 
+        const newBlacklist = new Blacklist({
+         token:bearerToken
+        });
+ 
+       await newBlacklist.save();
+ 
+       res.setHeader('Clear-Site-Data','"cookies","storage"')
+       return res.status(200).json({
+         success: true,
+         msg: 'You are logged out!'
+       });
+ 
+    }catch(error){
+     return res.status(400).json({
+         success: false,
+         msg: error.message
+     });
+    }
+ }
+
+ const generateRandom4Digit = async() =>{
+    return Math.floor(1000 + Math.random() * 9000);
+}
+
+ const sendOtp = async(req,res) =>{
+
+    try{
+        const errors = validationResult(req)
+
+        if(!errors.isEmpty()){
+            return res.status(400).json({
+                success: false,
+                msg:'Errors',
+                errors: errors.array()
+            })
+        }
+        const email = req.body.email
+
+        const userData = await User.findOne({ email:email})
+
+        if(!userData){
+            return res.status(400).json({
+                success: false,
+                msg:"Email Doesn't exists!"
+            }) 
+        }
+        if(userData.is_verified == 1){
+            return res.status(400).json({
+                success: false,
+                msg:userData.email+" mail is already verified!"
+            }) 
+        }
+
+        const g_otp = await generateRandom4Digit()
+
+        const oldOtpData =  await Otp.findOne({ user_id:userData._id })
+
+        if(oldOtpData){
+            const sendNextOtp = await oneMinuteExpiry(oldOtpData.timestamp);
+            if(!sendNextOtp){
+                return res.status(400).json({
+                    success: false,
+                    msg:'Pls try after some time!'
+                })
+            }
+        }
+
+        const cDate = new Date();
+
+        await Otp.findOneAndUpdate(
+            { user_id:userData._id },
+            { otp: g_otp, timestamp: new Date(cDate.getTime()) },
+            { upsert:true, new: true, setDefaultsOnInsert: true}
+        )
+
+        const msg = '<p>Hi <b>'+userData.name+'</b>,</br> <h4>'+g_otp+'</h4></p>'
+        mailer.sendMail(userData.email, 'Otp Verification', msg)
+       
+        return res.status(200).json({
+            success: true,
+            msg:'Otp has been sent to your mail, please check!',
+        
+        })
+
+    }catch(error){
+    return res.status(400).json({
+        success: false,
+        msg: error.message
+    });
+
+   }
+}
+
+const verifyOtp = async (req, res) =>{
+    try{
+        const errors = validationResult(req)
+
+        if(!errors.isEmpty()){
+            return res.status(400).json({
+                success: false,
+                msg:'Errors',
+                errors: errors.array()
+            })
+        }
+
+        const { user_id, otp} =  req.body;
+
+        const otpData = await Otp.findOne({
+            user_id:user_id,
+            otp :otp
+        });
+
+        if(!otpData){
+            return res.status(400).json({
+                success: false,
+                msg: 'You entered wrong OTP!'
+            });  
+        }
+
+        const isOtpExpired = await threeMinuteExpiry(otpData.timestamp)
+
+        if(isOtpExpired){
+            return res.status(400).json({
+                success: false,
+                msg: 'You OTP has been Expired!'
+            });  
+        }
+        await User.findByIdAndUpdate({ _id: user_id },{
+            $set:{
+                is_verified:1
+            }
+        });
+        return res.status(200).json({
+            success: true,
+            msg: 'Account Verified Successfully!'
+        });
+
+
+    }catch(error){
+    return res.status(400).json({
+        success: false,
+        msg: error.message
+    });
+
+   }
+}
+
+module.exports = { userRegister ,loginUser ,mailVerification, sendMailVerification  ,forgotPassword ,userProfile ,updateProfile ,refreshToken, logout, sendOtp, verifyOtp }
