@@ -2,9 +2,11 @@ const User = require('../models/userModel')
 const bcrypt = require('bcrypt')
 const {validationResult} = require('express-validator')
 const mailer = require('../helpers/mailer')
-const mongoose = require('mongoose');
 const randomstring = require('randomstring')
-const passwordReset = require('../models/passwordReset')
+const PasswordReset = require('../models/passwordReset');
+const jwt = require('jsonwebtoken')
+const path = require('path');
+const {deleteFile} = require('../helpers/deleteFile')
 
 const userRegister = async(req,res)=>{
 
@@ -51,6 +53,68 @@ const userRegister = async(req,res)=>{
             msg:'Registered successfully!',
             user: userData
         })
+
+    }
+    catch(error){
+        return res.status(400).json({
+            success: false,
+            msg:error.message
+        })
+    }
+}
+
+const generaterAccessToken = async (user)=>{
+    const token = jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{expiresIn:"2h"})
+    return token;
+}
+
+const loginUser = async(req,res)=>{
+    try{
+        const errors = validationResult(req) ;
+
+        if(!errors.isEmpty()){
+            return res.status(400).json({
+                success: false,
+                msg:'Errors',
+                errors:errors.array().map(error => error.msg)
+            })
+        }
+        const {email,password} = req.body;
+
+        const userData = await User.findOne({email});
+
+        if(!userData){
+           return res.status(401).json({
+            success:false,
+            msg: 'Email and Password is Incorrect!'
+           })
+        }
+
+        const passwordMatch = await bcrypt.compare(password, userData.password);
+
+        if(!passwordMatch){
+            return res.status(401).json({
+                success: false,
+                msg: 'Email and password is Incorrect!'
+            })
+        }
+
+        if(userData.is_verified == 0){
+            return res.status(401).json({
+                success: false,
+                msg: 'Please Verify Your Account!'
+            }) 
+        }
+
+       const accessToken = await generaterAccessToken({user : userData})
+
+       return res.status(200).json({
+        success:true,
+        msg: 'Login Successfully!!',
+        user : userData,
+        accessToken : accessToken,
+        tokenType: 'Bearer'
+       })
 
     }
     catch(error){
@@ -115,6 +179,7 @@ const sendMailVerification = async(req,res) =>{
                 msg:"Email Doesn't exists!"
             }) 
         }
+
         if(userData.is_verified == 1){
             return res.status(400).json({
                 success: false,
@@ -133,6 +198,7 @@ const sendMailVerification = async(req,res) =>{
         })
 
     }
+
     catch(error){
         return res.status(400).json({
             success: false,
@@ -142,36 +208,117 @@ const sendMailVerification = async(req,res) =>{
     
 }
 
-// const forgotPassword = async(req, res) =>{
-//     try{
-//         const errors = validationResult(req)
+const forgotPassword = async(req, res) =>{
+    try{
+        const errors = validationResult(req)
 
-//         if(!errors.isEmpty()){
-//             return res.status(400).json({
-//                 success: false,
-//                 msg:'Errors',
-//                 errors: errors.array()
-//             })
-//         }
-//         const email = req.body.email
+        if(!errors.isEmpty()){
+            return res.status(400).json({
+                success: false,
+                msg:'Errors',
+                errors: errors.array()
+            })
+        }
+        const email = req.body.email
 
-//         const userData = await User.findOne({ email:email})
+        const userData = await User.findOne({ email:email})
 
-//         if(!userData){
-//             return res.status(400).json({
-//                 success: false,
-//                 msg:"Email Doesn't exists!"
-//             }) 
-//         }
-//         const randomString = randomstring.generate()
-//         const msg = '<p> Hii '+userData.name+',Please click <a href="http://localhost:5000/reset-password?token='+randomString+'">here</a></p>'
+        if(!userData){
+            return res.status(400).json({
+                success: false,
+                msg:"Email Doesn't exists!"
+            }) 
+        }
+        const randomString = randomstring.generate()
+        const msg = '<p> Hii '+userData.name+',Please click <a href="http://localhost:5000/reset-password?token='+randomString+'">here</a> to  Reset your Password!</p>'
+        await PasswordReset.deleteMany({ user_id : userData._id })
+        const passwordReset = new PasswordReset({
+            user_id : userData._id,
+            token : randomString
+        });
+        await passwordReset.save();
+        mailer.sendMail(userData.email,'Reset Password', msg)
 
-//     }catch(error){
-//         return res.status(400).json({
-//             success: false,
-//             msg:error.message
-//         })
-//     }
-// }
+        return res.status(201).json({
+            success  : true,
+            msg:'Reset Password Link send to your mail, please check!'
+        })
 
-module.exports = { userRegister ,mailVerification, sendMailVerification  }
+
+    }catch(error){
+        return res.status(400).json({
+            success: false,
+            msg:error.message
+        })
+    }
+}
+
+const userProfile = async (req, res) =>{
+
+    try{
+
+        const userData = req.users.user;
+
+        return res.status(200).json({
+            success: true,
+            msg:'User Profile Data!',
+            data:userData
+        })
+    }
+    catch(error){
+        return res.status(400).json({
+            success: false,
+            msg:error.message
+        })
+    }
+
+}
+
+const updateProfile = async (req,res)  =>{
+    try{
+
+        const errors = validationResult(req)
+
+        if(!errors.isEmpty()){
+            return res.status(400).json({
+                success: false,
+                msg:'Errors',
+                errors: errors.array()
+            })
+        }
+
+        const {name, mobile} = req.body;
+
+        const data = {
+            name,
+            mobile
+        }
+
+        const user_id = req.users.user._id;
+
+        if(req.file !== undefined){
+             data.image = 'images/'+req.file.filename;
+             const oldUser = await User.findOne({ _id: user_id })
+             const oldFilePath = path.join(__dirname,'../public/'+oldUser.image)
+
+             deleteFile(oldFilePath);
+        }
+
+        const userData = await User.findByIdAndUpdate({_id: user_id},{
+            $set:data
+        }, {new : true });
+        return res.status(200).json({
+            success: true,
+            msg:'User Updated Successfully',
+            user: userData
+        })
+
+    }catch(error){
+        return res.status(400).json({
+            success: false,
+            msg:error.message
+        })
+    }
+}
+
+module.exports = { userRegister ,loginUser ,mailVerification, sendMailVerification  ,forgotPassword ,userProfile ,updateProfile }
